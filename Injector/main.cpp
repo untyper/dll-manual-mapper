@@ -20,9 +20,9 @@ int main()
     //HANDLE process_handle = OpenProcess(PROCESS_ALL_ACCESS, FALSE, GetCurrentProcessId());
     if (!process_handle)
     {
-        std::cout << ERROR << "OOPS! We ran into some problems... #486" << std::endl;
-        std::cin.get();
-        return -1;
+      std::cout << ERROR << "OOPS! We ran into some problems... #486" << std::endl;
+      std::cin.get();
+      return -1;
     }
 
     /* Map dll to target process */
@@ -30,9 +30,9 @@ int main()
 
     if (!mapped_address)
     {
-        std::cout << ERROR << "OOPS! We ran into some problems... #487" << std::endl;
-        std::cin.get();
-        return -1;
+      std::cout << ERROR << "OOPS! We ran into some problems... #487" << std::endl;
+      std::cin.get();
+      return -1;
     }
 
     std::cout << SUCCESS << "Done mapping! Unmapping in 10s..." << std::endl;

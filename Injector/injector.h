@@ -12,10 +12,10 @@ using f_DLL_ENTRY_POINT = BOOL(WINAPI*)(void* hDll, DWORD dwReason, void* pReser
 
 struct MANUAL_MAPPING_DATA
 {
-	f_LoadLibraryA pLoadLibraryA;
-	f_GetProcAddress pGetProcAddress;
-	BYTE* pBase;
-	HINSTANCE hMod;
+  f_LoadLibraryA pLoadLibraryA;
+  f_GetProcAddress pGetProcAddress;
+  BYTE* pBase;
+  HINSTANCE hMod;
 };
 
 // This overload expects an existing heap allocated buffer for manual mapping

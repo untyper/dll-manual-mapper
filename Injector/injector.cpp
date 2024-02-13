@@ -1,7 +1,8 @@
 #include "injector.h"
 
-#ifdef MANUAL_MAP_ENABLE_OUTPUT
+#ifdef MMAP_ENABLE_OUTPUT
 #include <iostream>
+#include "colors.h"
 #define COUT              std::cout
 #define ENDL              std::endl
 #define OUT_ERROR(ARGS)   COUT << ERROR   << ARGS << ENDL
@@ -21,10 +22,10 @@
 #define CURRENT_ARCH IMAGE_FILE_MACHINE_I386
 #endif
 
-void __stdcall ShellcodeAttach(MANUAL_MAPPING_DATA* pData);
-void __stdcall ShellcodeDetach(MANUAL_MAPPING_DATA* pData);
+void __stdcall shellcode_attach(MANUAL_MAPPING_DATA* p_data);
+void __stdcall shellcode_detach(MANUAL_MAPPING_DATA* p_data);
 
-bool ExecuteShellcode(HANDLE process_handle, void (*Shellcode)(MANUAL_MAPPING_DATA*), MANUAL_MAPPING_DATA data)
+bool execute_shellcode(HANDLE process_handle, void (*shellcode)(MANUAL_MAPPING_DATA*), MANUAL_MAPPING_DATA data)
 {
   /* Allocate space for our data */
   PBYTE mmap_data_buffer = reinterpret_cast<PBYTE>(VirtualAllocEx(process_handle, nullptr, sizeof(MANUAL_MAPPING_DATA), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
@@ -46,18 +47,18 @@ bool ExecuteShellcode(HANDLE process_handle, void (*Shellcode)(MANUAL_MAPPING_DA
   OUT_SUCCESS("Mapped mmap data");
 
   /* Allocate space for our shellcode */
-  void* pShellcode = VirtualAllocEx(process_handle, nullptr, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-  if (!pShellcode) 
+  void* p_shellcode = VirtualAllocEx(process_handle, nullptr, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+  if (!p_shellcode) 
   {
     OUT_ERROR("OOPS! We ran into some problems... #498 (" << GetLastError() << ")");
     VirtualFreeEx(process_handle, mmap_data_buffer, 0, MEM_RELEASE);
     return false;
   }
 
-  OUT_SUCCESS("Allocated shellcode (0x1000 bytes at 0x" << std::hex << (uintptr_t)pShellcode << ")");
+  OUT_SUCCESS("Allocated shellcode (0x1000 bytes at 0x" << std::hex << (uintptr_t)p_shellcode << ")");
 
   /* Write our shellcode */
-  if (!WriteProcessMemory(process_handle, pShellcode, Shellcode, 0x1000, nullptr))
+  if (!WriteProcessMemory(process_handle, p_shellcode, shellcode, 0x1000, nullptr))
   {
     OUT_ERROR("OOPS! We ran into some problems... #499 (" << GetLastError() << ")");
     return false;
@@ -66,26 +67,26 @@ bool ExecuteShellcode(HANDLE process_handle, void (*Shellcode)(MANUAL_MAPPING_DA
   OUT_SUCCESS("Mapped shellcode");
 
   /* Create thread */
-  HANDLE hThread = CreateRemoteThread(process_handle, nullptr, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(pShellcode), mmap_data_buffer, 0, nullptr);
-  if (!hThread) 
+  HANDLE h_thread = CreateRemoteThread(process_handle, nullptr, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(p_shellcode), mmap_data_buffer, 0, nullptr);
+  if (!h_thread) 
   {
     OUT_ERROR("OOPS! We ran into some problems... #500 (" << GetLastError() << ")");
 
     VirtualFreeEx(process_handle, mmap_data_buffer, 0, MEM_RELEASE);
-    VirtualFreeEx(process_handle, pShellcode, 0, MEM_RELEASE);
+    VirtualFreeEx(process_handle, p_shellcode, 0, MEM_RELEASE);
 
     return false;
   }
 
-  OUT_SUCCESS("Created thread at 0x" << std::hex << (uintptr_t)pShellcode << " (handle: 0x" << std::hex << hThread << ")");
+  OUT_SUCCESS("Created thread at 0x" << std::hex << (uintptr_t)p_shellcode << " (handle: 0x" << std::hex << h_thread << ")");
 
-  CloseHandle(hThread);
+  CloseHandle(h_thread);
 
   OUT_SUCCESS("Waiting for entry point to return...");
 
   /* Wait for shellcode to be ran */
-  HINSTANCE hCheck = NULL;
-  while (!hCheck) 
+  HINSTANCE h_check = NULL;
+  while (!h_check) 
   {
     DWORD exitcode = 0;
     GetExitCodeProcess(process_handle, &exitcode);
@@ -98,14 +99,14 @@ bool ExecuteShellcode(HANDLE process_handle, void (*Shellcode)(MANUAL_MAPPING_DA
 
     MANUAL_MAPPING_DATA data_checked{ 0 };
     ReadProcessMemory(process_handle, mmap_data_buffer, &data_checked, sizeof(data_checked), nullptr);
-    hCheck = data_checked.hMod;
+    h_check = data_checked.h_mod;
 
-    if (hCheck == (HINSTANCE)0x404040) 
+    if (h_check == (HINSTANCE)0x404040) 
     {
       OUT_ERROR("OOPS! We ran into some problems... #502");
       return false;
     }
-    else if (hCheck == (HINSTANCE)0x606060) 
+    else if (h_check == (HINSTANCE)0x606060) 
     {
       OUT_ERROR("OOPS! We ran into some problems... #503");
       return false;
@@ -117,7 +118,7 @@ bool ExecuteShellcode(HANDLE process_handle, void (*Shellcode)(MANUAL_MAPPING_DA
   OUT_SUCCESS("Entry point returned!");
 
   /* Free shit */
-  if (!VirtualFreeEx(process_handle, pShellcode, 0, MEM_RELEASE))
+  if (!VirtualFreeEx(process_handle, p_shellcode, 0, MEM_RELEASE))
   {
     OUT_ERROR("Failed to free shellcode");
   }
@@ -130,7 +131,7 @@ bool ExecuteShellcode(HANDLE process_handle, void (*Shellcode)(MANUAL_MAPPING_DA
   return true;
 }
 
-PBYTE ManualMap(HANDLE process_handle, const char* source_buffer, int size)
+PBYTE mmap_dll(HANDLE process_handle, const char* source_buffer, int size)
 {
   /* Allocate buffer */
   PBYTE buffer = reinterpret_cast<PBYTE>(malloc(size));
@@ -144,13 +145,13 @@ PBYTE ManualMap(HANDLE process_handle, const char* source_buffer, int size)
 
   /* Copy bytes from original source to new source */
   memcpy(buffer, source_buffer, size);
-  return ManualMap(process_handle, buffer);
+  return mmap_dll(process_handle, buffer);
 }
 
-PBYTE ManualMap(HANDLE process_handle, const char* binary_path)
+PBYTE mmap_dll(HANDLE process_handle, const char* binary_path)
 {
   /* Check dll file attributes */
-  if (GetFileAttributes(binary_path) == INVALID_FILE_ATTRIBUTES)
+  if (GetFileAttributesA(binary_path) == INVALID_FILE_ATTRIBUTES)
   {
     OUT_ERROR("OOPS! We ran into some problems... ");
     OUT_ERROR("Failed to find DLL file on disk. Please make sure the path is correct!");
@@ -193,10 +194,10 @@ PBYTE ManualMap(HANDLE process_handle, const char* binary_path)
   binary_file.read(reinterpret_cast<char*>(buffer), file_size);
   binary_file.close();
 
-  return ManualMap(process_handle, buffer);
+  return mmap_dll(process_handle, buffer);
 }
 
-PBYTE ManualMap(HANDLE process_handle, PBYTE buffer)
+PBYTE mmap_dll(HANDLE process_handle, PBYTE buffer)
 {
   OUT_INFO("Mapping DLL to target process (handle: 0x" << std::hex << process_handle << ")");
 
@@ -209,12 +210,12 @@ PBYTE ManualMap(HANDLE process_handle, PBYTE buffer)
   }
 
   /* Retrieve headers */
-  PIMAGE_NT_HEADERS pOldNtHeader = reinterpret_cast<IMAGE_NT_HEADERS*>(buffer + reinterpret_cast<IMAGE_DOS_HEADER*>(buffer)->e_lfanew);
-  PIMAGE_OPTIONAL_HEADER pOldOptHeader = &pOldNtHeader->OptionalHeader;
-  PIMAGE_FILE_HEADER pOldFileHeader = &pOldNtHeader->FileHeader;
+  PIMAGE_NT_HEADERS p_old_nt_header = reinterpret_cast<IMAGE_NT_HEADERS*>(buffer + reinterpret_cast<IMAGE_DOS_HEADER*>(buffer)->e_lfanew);
+  PIMAGE_OPTIONAL_HEADER p_old_opt_header = &p_old_nt_header->OptionalHeader;
+  PIMAGE_FILE_HEADER p_old_file_header = &p_old_nt_header->FileHeader;
 
   /* Check platform */
-  if (pOldFileHeader->Machine != CURRENT_ARCH)
+  if (p_old_file_header->Machine != CURRENT_ARCH)
   {
     OUT_ERROR("OOPS! We ran into some problems... #492");
     free(buffer);
@@ -222,23 +223,23 @@ PBYTE ManualMap(HANDLE process_handle, PBYTE buffer)
   }
 
   /* Allocate buffer in target process */
-  PBYTE pTargetBase = reinterpret_cast<PBYTE>(VirtualAllocEx(process_handle, nullptr, pOldOptHeader->SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
-  if (!pTargetBase)
+  PBYTE p_target_base = reinterpret_cast<PBYTE>(VirtualAllocEx(process_handle, nullptr, p_old_opt_header->SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+  if (!p_target_base)
   {
     OUT_ERROR("OOPS! We ran into some problems... #493 (" << GetLastError() << ")");
     free(buffer);
     return nullptr;
   }
 
-  OUT_SUCCESS("Allocated 0x" << std::hex << pOldOptHeader->SizeOfImage << " bytes in target process at 0x" << std::hex << (uintptr_t)pTargetBase);
+  OUT_SUCCESS("Allocated 0x" << std::hex << p_old_opt_header->SizeOfImage << " bytes in target process at 0x" << std::hex << (uintptr_t)p_target_base);
 
   MANUAL_MAPPING_DATA data = { 0 };
-  data.pLoadLibraryA = LoadLibraryA;
-  data.pGetProcAddress = GetProcAddress;
-  data.pBase = pTargetBase;
+  data.p_load_library_a = LoadLibraryA;
+  data.p_get_proc_address = GetProcAddress;
+  data.p_base = p_target_base;
 
   /* Write first 0x1000 bytes (header) */
-  if (!WriteProcessMemory(process_handle, pTargetBase, buffer, 0x1000, nullptr))
+  if (!WriteProcessMemory(process_handle, p_target_base, buffer, 0x1000, nullptr))
   {
     OUT_ERROR("OOPS! We ran into some problems... #494 (" << GetLastError() << ")");
     return nullptr;
@@ -247,48 +248,48 @@ PBYTE ManualMap(HANDLE process_handle, PBYTE buffer)
   OUT_SUCCESS("Mapped header");
 
   /* Iterate sections */
-  PIMAGE_SECTION_HEADER pSectionHeader = IMAGE_FIRST_SECTION(pOldNtHeader);
-  for (UINT i = 0; i != pOldFileHeader->NumberOfSections; ++i, ++pSectionHeader) 
+  PIMAGE_SECTION_HEADER p_section_header = IMAGE_FIRST_SECTION(p_old_nt_header);
+  for (UINT i = 0; i != p_old_file_header->NumberOfSections; ++i, ++p_section_header) 
   {
-    if (!pSectionHeader->SizeOfRawData)
+    if (!p_section_header->SizeOfRawData)
       continue;
 
     /* Map section */
-    if (WriteProcessMemory(process_handle, pTargetBase + pSectionHeader->VirtualAddress, buffer + pSectionHeader->PointerToRawData, pSectionHeader->SizeOfRawData, nullptr))
+    if (WriteProcessMemory(process_handle, p_target_base + p_section_header->VirtualAddress, buffer + p_section_header->PointerToRawData, p_section_header->SizeOfRawData, nullptr))
     {
-      OUT_SUCCESS("Mapped [" << pSectionHeader->Name << "]");
+      OUT_SUCCESS("Mapped [" << p_section_header->Name << "]");
       continue;
     }
-    
+
     /* Failed to map section */
     OUT_ERROR("OOPS! We ran into some problems... #495 (" << GetLastError() << ")");
-    
+
     free(buffer);
-    VirtualFreeEx(process_handle, pTargetBase, 0, MEM_RELEASE);
+    VirtualFreeEx(process_handle, p_target_base, 0, MEM_RELEASE);
 
     return nullptr;
   }
 
-  if (!ExecuteShellcode(process_handle, ShellcodeAttach, data))
+  if (!execute_shellcode(process_handle, shellcode_attach, data))
   {
-    VirtualFreeEx(process_handle, pTargetBase, 0, MEM_RELEASE);
+    VirtualFreeEx(process_handle, p_target_base, 0, MEM_RELEASE);
     free(buffer);
     return nullptr;
   }
 
   /* Zero first 0x1000 bytes (header) */
-  BYTE emptyBuffer[0x1000] = { 0 };
-  memset(emptyBuffer, 0, 0x1000);
+  BYTE empty_buffer[0x1000] = { 0 };
+  memset(empty_buffer, 0, 0x1000);
 
   /* Write empty buffer */
-  if (!WriteProcessMemory(process_handle, pTargetBase, emptyBuffer, 0x1000, nullptr))
+  if (!WriteProcessMemory(process_handle, p_target_base, empty_buffer, 0x1000, nullptr))
   {
     OUT_WARNING("If you see this message please reboot your system and try again");
   }
 
   /* Allocate new empty buffer */
-  PBYTE emptyBuffer2 = reinterpret_cast<PBYTE>(malloc(1024 * 1024));
-  if (!emptyBuffer2) 
+  PBYTE empty_buffer_2 = reinterpret_cast<PBYTE>(malloc(1024 * 1024));
+  if (!empty_buffer_2) 
   {
     OUT_ERROR("OOPS! We ran into some problems... #504");
     free(buffer);
@@ -296,18 +297,18 @@ PBYTE ManualMap(HANDLE process_handle, PBYTE buffer)
   }
 
   /* Zero buffer */
-  memset(emptyBuffer2, 0, 1024 * 1024);
+  memset(empty_buffer_2, 0, 1024 * 1024);
 
   /* Zero sections */
-  pSectionHeader = IMAGE_FIRST_SECTION(pOldNtHeader);
-  for (UINT i = 0; i != pOldFileHeader->NumberOfSections; ++i, ++pSectionHeader) 
+  p_section_header = IMAGE_FIRST_SECTION(p_old_nt_header);
+  for (UINT i = 0; i != p_old_file_header->NumberOfSections; ++i, ++p_section_header) 
   {
-    if (!pSectionHeader->SizeOfRawData)
+    if (!p_section_header->SizeOfRawData)
       continue;
-    
-    if (strcmp((char*)pSectionHeader->Name, ".pdata") == 0 || strcmp((char*)pSectionHeader->Name, ".rsrc") == 0 || strcmp((char*)pSectionHeader->Name, ".reloc") == 0) 
+
+    if (strcmp((char*)p_section_header->Name, ".pdata") == 0 || strcmp((char*)p_section_header->Name, ".rsrc") == 0 || strcmp((char*)p_section_header->Name, ".reloc") == 0) 
     {
-      if (!WriteProcessMemory(process_handle, pTargetBase + pSectionHeader->VirtualAddress, emptyBuffer2, pSectionHeader->SizeOfRawData, nullptr))
+      if (!WriteProcessMemory(process_handle, p_target_base + p_section_header->VirtualAddress, empty_buffer_2, p_section_header->SizeOfRawData, nullptr))
       {
         //...
       }
@@ -321,22 +322,22 @@ PBYTE ManualMap(HANDLE process_handle, PBYTE buffer)
   }
 
   //Sleep(500);
-  return pTargetBase;
+  return p_target_base;
 }
 
-bool ManualUnmap(HANDLE process_handle, PBYTE pTargetBase)
+bool munmap_dll(HANDLE process_handle, PBYTE p_target_base)
 {
-  OUT_INFO("Unmapping DLL from target process (handle: 0x" << std::hex << process_handle << ") at 0x"  << (PVOID)pTargetBase);
+  OUT_INFO("Unmapping DLL from target process (handle: 0x" << std::hex << process_handle << ") at 0x"  << (PVOID)p_target_base);
 
   MANUAL_MAPPING_DATA data = { 0 };
-  data.pBase = pTargetBase;
+  data.p_base = p_target_base;
 
-  if (!ExecuteShellcode(process_handle, ShellcodeDetach, data))
+  if (!execute_shellcode(process_handle, shellcode_detach, data))
   {
     return false;
   }
 
-  if (!VirtualFreeEx(process_handle, pTargetBase, 0, MEM_RELEASE))
+  if (!VirtualFreeEx(process_handle, p_target_base, 0, MEM_RELEASE))
   {
     OUT_ERROR("Failed to free mapped memory");
   }
@@ -357,122 +358,122 @@ bool ManualUnmap(HANDLE process_handle, PBYTE pTargetBase)
 #pragma runtime_checks( "", off )
 #pragma optimize( "", off )
 
-void __stdcall ShellcodeAttach(MANUAL_MAPPING_DATA* pData)
+void __stdcall shellcode_attach(MANUAL_MAPPING_DATA* p_data)
 {
-  if (!pData) 
+  if (!p_data) 
   {
-    pData->hMod = (HINSTANCE)0x404040;
+    p_data->h_mod = (HINSTANCE)0x404040;
     return;
   }
 
-  PBYTE pBase = pData->pBase;
-  auto* pOpt = &reinterpret_cast<PIMAGE_NT_HEADERS>(pBase + reinterpret_cast<PIMAGE_DOS_HEADER>((uintptr_t)pBase)->e_lfanew)->OptionalHeader;
+  PBYTE p_base = p_data->p_base;
+  auto* p_opt = &reinterpret_cast<PIMAGE_NT_HEADERS>(p_base + reinterpret_cast<PIMAGE_DOS_HEADER>((uintptr_t)p_base)->e_lfanew)->OptionalHeader;
 
-  auto _LoadLibraryA = pData->pLoadLibraryA;
-  auto _GetProcAddress = pData->pGetProcAddress;
-  auto _DllMain = reinterpret_cast<f_DLL_ENTRY_POINT>(pBase + pOpt->AddressOfEntryPoint);
+  auto _load_library_a = p_data->p_load_library_a;
+  auto _get_proc_address = p_data->p_get_proc_address;
+  auto _dll_main = reinterpret_cast<f_DLL_ENTRY_POINT>(p_base + p_opt->AddressOfEntryPoint);
 
-  PBYTE LocationDelta = (pBase - pOpt->ImageBase);
-  if (LocationDelta)
+  PBYTE location_delta = (p_base - p_opt->ImageBase);
+  if (location_delta)
   {
-    if (!pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size) 
+    if (!p_opt->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size) 
     {
-      pData->hMod = (HINSTANCE)0x606060;
+      p_data->h_mod = (HINSTANCE)0x606060;
       return;
     }
 
-    PIMAGE_BASE_RELOCATION pRelocData = reinterpret_cast<PIMAGE_BASE_RELOCATION>(pBase + pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress);
-    
-    while (pRelocData->VirtualAddress)
-    {
-      UINT AmountOfEntries = (pRelocData->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(WORD);
-      PWORD pRelativeInfo = reinterpret_cast<PWORD>(pRelocData + 1);
+    PIMAGE_BASE_RELOCATION p_reloc_data = reinterpret_cast<PIMAGE_BASE_RELOCATION>(p_base + p_opt->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress);
 
-      for (UINT i = 0; i != AmountOfEntries; ++i, ++pRelativeInfo)
+    while (p_reloc_data->VirtualAddress)
+    {
+      UINT amount_of_entries = (p_reloc_data->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(WORD);
+      PWORD p_relative_info = reinterpret_cast<PWORD>(p_reloc_data + 1);
+
+      for (UINT i = 0; i != amount_of_entries; ++i, ++p_relative_info)
       {
-        if (RELOC_FLAG(*pRelativeInfo))
+        if (RELOC_FLAG(*p_relative_info))
         {
-          UINT_PTR* pPatch = reinterpret_cast<UINT_PTR*>(pBase + pRelocData->VirtualAddress + ((*pRelativeInfo) & 0xFFF));
-          *pPatch += reinterpret_cast<UINT_PTR>(LocationDelta);
+          UINT_PTR* p_patch = reinterpret_cast<UINT_PTR*>(p_base + p_reloc_data->VirtualAddress + ((*p_relative_info) & 0xFFF));
+          *p_patch += reinterpret_cast<UINT_PTR>(location_delta);
         }
       }
 
-      pRelocData = reinterpret_cast<IMAGE_BASE_RELOCATION*>(reinterpret_cast<BYTE*>(pRelocData) + pRelocData->SizeOfBlock);
+      p_reloc_data = reinterpret_cast<IMAGE_BASE_RELOCATION*>(reinterpret_cast<BYTE*>(p_reloc_data) + p_reloc_data->SizeOfBlock);
     }
   }
 
-  if (pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size)
+  if (p_opt->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size)
   {
-    PIMAGE_IMPORT_DESCRIPTOR pImportDescr = reinterpret_cast<PIMAGE_IMPORT_DESCRIPTOR>(pBase + pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
-    
-    while (pImportDescr->Name)
+    PIMAGE_IMPORT_DESCRIPTOR p_import_descr = reinterpret_cast<PIMAGE_IMPORT_DESCRIPTOR>(p_base + p_opt->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+
+    while (p_import_descr->Name)
     {
-      char* szMod = reinterpret_cast<char*>(pBase + pImportDescr->Name);
-      HINSTANCE hDll = _LoadLibraryA(szMod);
+      char* sz_mod = reinterpret_cast<char*>(p_base + p_import_descr->Name);
+      HINSTANCE h_dll = _load_library_a(sz_mod);
 
-      ULONG_PTR* pThunkRef = reinterpret_cast<ULONG_PTR*>(pBase + pImportDescr->OriginalFirstThunk);
-      ULONG_PTR* pFuncRef = reinterpret_cast<ULONG_PTR*>(pBase + pImportDescr->FirstThunk);
+      ULONG_PTR* p_thunk_ref = reinterpret_cast<ULONG_PTR*>(p_base + p_import_descr->OriginalFirstThunk);
+      ULONG_PTR* p_func_ref = reinterpret_cast<ULONG_PTR*>(p_base + p_import_descr->FirstThunk);
 
-      if (!pThunkRef)
-        pThunkRef = pFuncRef;
+      if (!p_thunk_ref)
+        p_thunk_ref = p_func_ref;
 
-      for (; *pThunkRef; ++pThunkRef, ++pFuncRef)
+      for (; *p_thunk_ref; ++p_thunk_ref, ++p_func_ref)
       {
-        if (IMAGE_SNAP_BY_ORDINAL(*pThunkRef))
+        if (IMAGE_SNAP_BY_ORDINAL(*p_thunk_ref))
         {
-          *pFuncRef = (ULONG_PTR)_GetProcAddress(hDll, reinterpret_cast<char*>(*pThunkRef & 0xFFFF));
+          *p_func_ref = (ULONG_PTR)_get_proc_address(h_dll, reinterpret_cast<char*>(*p_thunk_ref & 0xFFFF));
         }
         else
         {
-          auto* pImport = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(pBase + (*pThunkRef));
-          *pFuncRef = (ULONG_PTR)_GetProcAddress(hDll, pImport->Name);
+          auto* p_import = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(p_base + (*p_thunk_ref));
+          *p_func_ref = (ULONG_PTR)_get_proc_address(h_dll, p_import->Name);
         }
       }
 
-      ++pImportDescr;
+      ++p_import_descr;
     }
   }
 
-  if (pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].Size)
+  if (p_opt->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].Size)
   {
-    auto* pTLS = reinterpret_cast<IMAGE_TLS_DIRECTORY*>(pBase + pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress);
-    auto* pCallback = reinterpret_cast<PIMAGE_TLS_CALLBACK*>(pTLS->AddressOfCallBacks);
-    
-    for (; pCallback && *pCallback; ++pCallback)
+    auto* p_tls = reinterpret_cast<IMAGE_TLS_DIRECTORY*>(p_base + p_opt->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress);
+    auto* p_callback = reinterpret_cast<PIMAGE_TLS_CALLBACK*>(p_tls->AddressOfCallBacks);
+
+    for (; p_callback && *p_callback; ++p_callback)
     {
-      (*pCallback)(pBase, DLL_PROCESS_ATTACH, nullptr);
+      (*p_callback)(p_base, DLL_PROCESS_ATTACH, nullptr);
     }
   }
 
-  _DllMain(pBase, DLL_PROCESS_ATTACH, nullptr);
+  _dll_main(p_base, DLL_PROCESS_ATTACH, nullptr);
 
-  pData->hMod = reinterpret_cast<HINSTANCE>(pBase);
+  p_data->h_mod = reinterpret_cast<HINSTANCE>(p_base);
 }
 
-void __stdcall ShellcodeDetach(MANUAL_MAPPING_DATA* pData)
+void __stdcall shellcode_detach(MANUAL_MAPPING_DATA* p_data)
 {
-  if (!pData) 
+  if (!p_data) 
   {
-    //pData->hMod = (HINSTANCE)0x404040;
+    //p_data->h_mod = (HINSTANCE)0x404040;
     return;
   }
 
-  PBYTE pBase = pData->pBase;
-  auto* pOpt = &reinterpret_cast<PIMAGE_NT_HEADERS>(pBase + reinterpret_cast<PIMAGE_DOS_HEADER>((uintptr_t)pBase)->e_lfanew)->OptionalHeader;
-  auto _DllMain = reinterpret_cast<f_DLL_ENTRY_POINT>(pBase + pOpt->AddressOfEntryPoint);
+  PBYTE p_base = p_data->p_base;
+  auto* p_opt = &reinterpret_cast<PIMAGE_NT_HEADERS>(p_base + reinterpret_cast<PIMAGE_DOS_HEADER>((uintptr_t)p_base)->e_lfanew)->OptionalHeader;
+  auto _dll_main = reinterpret_cast<f_DLL_ENTRY_POINT>(p_base + p_opt->AddressOfEntryPoint);
 
-  if (pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].Size)
+  if (p_opt->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].Size)
   {
-    auto* pTLS = reinterpret_cast<IMAGE_TLS_DIRECTORY*>(pBase + pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress);
-    auto* pCallback = reinterpret_cast<PIMAGE_TLS_CALLBACK*>(pTLS->AddressOfCallBacks);
+    auto* p_tls = reinterpret_cast<IMAGE_TLS_DIRECTORY*>(p_base + p_opt->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress);
+    auto* p_callback = reinterpret_cast<PIMAGE_TLS_CALLBACK*>(p_tls->AddressOfCallBacks);
 
-    for (; pCallback && *pCallback; ++pCallback)
+    for (; p_callback && *p_callback; ++p_callback)
     {
-      (*pCallback)(pBase, DLL_PROCESS_DETACH, nullptr);
+      (*p_callback)(p_base, DLL_PROCESS_DETACH, nullptr);
     }
   }
 
-  _DllMain(pBase, DLL_PROCESS_DETACH, nullptr);
+  _dll_main(p_base, DLL_PROCESS_DETACH, nullptr);
 
-  pData->hMod = reinterpret_cast<HINSTANCE>(pBase);
+  p_data->h_mod = reinterpret_cast<HINSTANCE>(p_base);
 }

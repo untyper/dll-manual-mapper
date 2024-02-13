@@ -26,7 +26,7 @@ int main()
     }
 
     /* Map dll to target process */
-    PBYTE mapped_address = ManualMap(process_handle, dll, sizeof(dll));
+    PBYTE mapped_address = mmap_dll(process_handle, dll, sizeof(dll));
 
     if (!mapped_address)
     {
@@ -39,7 +39,7 @@ int main()
 
     Sleep(10000);
 
-    bool unmap_status = ManualUnmap(process_handle, mapped_address);
+    bool unmap_status = munmap_dll(process_handle, mapped_address);
     CloseHandle(process_handle);
 
     if (!unmap_status)

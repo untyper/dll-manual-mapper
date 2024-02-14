@@ -16,14 +16,11 @@ struct MANUAL_MAPPING_DATA
   HINSTANCE h_mod;
 };
 
-// This overload expects an existing heap allocated buffer for manual mapping
-PBYTE mmap_dll(HANDLE process_handle, PBYTE buffer);
+// Maps dll from buffer to process specified by process handle
+PBYTE map_dll(HANDLE process_handle, PBYTE buffer, bool from_file = false  /* reserved for internal use */);
 
-// This overload copies the given buffer to a new heap allocated buffer for manual mapping
-PBYTE mmap_dll(HANDLE process_handle, const char* source_buffer, int size);
+// Maps dll from file to process specified by process handle
+PBYTE map_dll(HANDLE process_handle, const char* binary_path);
 
-// This overload reads the dll from a file to a heap allocated buffer for manual mapping
-PBYTE mmap_dll(HANDLE process_handle, const char* binary_path);
-
-// Unmaps mapped dll from memory at given address
-bool munmap_dll(HANDLE process_handle, PBYTE p_target_base);
+// Unmaps previously mapped dll from memory at given address
+bool unmap_dll(HANDLE process_handle, PBYTE p_target_base);

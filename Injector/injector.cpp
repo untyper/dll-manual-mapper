@@ -1,14 +1,12 @@
 #include "injector.h"
 
-#ifdef MMAP_ENABLE_OUTPUT
+#ifdef MAP_DLL_ENABLE_OUTPUT
 #include <iostream>
 #include "colors.h"
-#define COUT              std::cout
-#define ENDL              std::endl
-#define OUT_ERROR(ARGS)   COUT << ERROR   << ARGS << ENDL
-#define OUT_INFO(ARGS)    COUT << INFO    << ARGS << ENDL
-#define OUT_SUCCESS(ARGS) COUT << SUCCESS << ARGS << ENDL
-#define OUT_WARNING(ARGS) COUT << WARNING << ARGS << ENDL
+#define OUT_ERROR(ARGS)   std::cout << ERROR   << ARGS << std::endl
+#define OUT_INFO(ARGS)    std::cout << INFO    << ARGS << std::endl
+#define OUT_SUCCESS(ARGS) std::cout << SUCCESS << ARGS << std::endl
+#define OUT_WARNING(ARGS) std::cout << WARNING << ARGS << std::endl
 #else
 #define OUT_ERROR(ARGS)
 #define OUT_INFO(ARGS)
@@ -131,24 +129,7 @@ bool execute_shellcode(HANDLE process_handle, void (*shellcode)(MANUAL_MAPPING_D
   return true;
 }
 
-PBYTE mmap_dll(HANDLE process_handle, const char* source_buffer, int size)
-{
-  /* Allocate buffer */
-  PBYTE buffer = reinterpret_cast<PBYTE>(malloc(size));
-  if (!buffer)
-  {
-    OUT_ERROR("OOPS! We ran into some problems... #490");
-    return nullptr;
-  }
-
-  OUT_SUCCESS("Allocated buffer at 0x" << std::hex << (uintptr_t)buffer);
-
-  /* Copy bytes from original source to new source */
-  memcpy(buffer, source_buffer, size);
-  return mmap_dll(process_handle, buffer);
-}
-
-PBYTE mmap_dll(HANDLE process_handle, const char* binary_path)
+PBYTE map_dll(HANDLE process_handle, const char* binary_path)
 {
   /* Check dll file attributes */
   if (GetFileAttributesA(binary_path) == INVALID_FILE_ATTRIBUTES)
@@ -194,10 +175,10 @@ PBYTE mmap_dll(HANDLE process_handle, const char* binary_path)
   binary_file.read(reinterpret_cast<char*>(buffer), file_size);
   binary_file.close();
 
-  return mmap_dll(process_handle, buffer);
+  return map_dll(process_handle, buffer, true);
 }
 
-PBYTE mmap_dll(HANDLE process_handle, PBYTE buffer)
+PBYTE map_dll(HANDLE process_handle, PBYTE buffer, bool from_file)
 {
   OUT_INFO("Mapping DLL to target process (handle: 0x" << std::hex << process_handle << ")");
 
@@ -205,7 +186,7 @@ PBYTE mmap_dll(HANDLE process_handle, PBYTE buffer)
   if (reinterpret_cast<IMAGE_DOS_HEADER*>(buffer)->e_magic != 0x5A4D)
   {
     OUT_ERROR("OOPS! We ran into some problems... #491");
-    free(buffer);
+    if (from_file) free(buffer);
     return nullptr;
   }
 
@@ -218,7 +199,7 @@ PBYTE mmap_dll(HANDLE process_handle, PBYTE buffer)
   if (p_old_file_header->Machine != CURRENT_ARCH)
   {
     OUT_ERROR("OOPS! We ran into some problems... #492");
-    free(buffer);
+    if (from_file) free(buffer);
     return nullptr;
   }
 
@@ -227,7 +208,7 @@ PBYTE mmap_dll(HANDLE process_handle, PBYTE buffer)
   if (!p_target_base)
   {
     OUT_ERROR("OOPS! We ran into some problems... #493 (" << GetLastError() << ")");
-    free(buffer);
+    if (from_file) free(buffer);
     return nullptr;
   }
 
@@ -260,11 +241,11 @@ PBYTE mmap_dll(HANDLE process_handle, PBYTE buffer)
       OUT_SUCCESS("Mapped [" << p_section_header->Name << "]");
       continue;
     }
-
+    
     /* Failed to map section */
     OUT_ERROR("OOPS! We ran into some problems... #495 (" << GetLastError() << ")");
-
-    free(buffer);
+    
+    if (from_file) free(buffer);
     VirtualFreeEx(process_handle, p_target_base, 0, MEM_RELEASE);
 
     return nullptr;
@@ -273,7 +254,7 @@ PBYTE mmap_dll(HANDLE process_handle, PBYTE buffer)
   if (!execute_shellcode(process_handle, shellcode_attach, data))
   {
     VirtualFreeEx(process_handle, p_target_base, 0, MEM_RELEASE);
-    free(buffer);
+    if (from_file) free(buffer);
     return nullptr;
   }
 
@@ -292,7 +273,7 @@ PBYTE mmap_dll(HANDLE process_handle, PBYTE buffer)
   if (!empty_buffer_2) 
   {
     OUT_ERROR("OOPS! We ran into some problems... #504");
-    free(buffer);
+    if (from_file) free(buffer);
     return nullptr;
   }
 
@@ -305,7 +286,7 @@ PBYTE mmap_dll(HANDLE process_handle, PBYTE buffer)
   {
     if (!p_section_header->SizeOfRawData)
       continue;
-
+    
     if (strcmp((char*)p_section_header->Name, ".pdata") == 0 || strcmp((char*)p_section_header->Name, ".rsrc") == 0 || strcmp((char*)p_section_header->Name, ".reloc") == 0) 
     {
       if (!WriteProcessMemory(process_handle, p_target_base + p_section_header->VirtualAddress, empty_buffer_2, p_section_header->SizeOfRawData, nullptr))
@@ -318,14 +299,14 @@ PBYTE mmap_dll(HANDLE process_handle, PBYTE buffer)
   /* Free shit */
   if (buffer)
   {
-    free(buffer);
+    if (from_file) free(buffer);
   }
 
   //Sleep(500);
   return p_target_base;
 }
 
-bool munmap_dll(HANDLE process_handle, PBYTE p_target_base)
+bool unmap_dll(HANDLE process_handle, PBYTE p_target_base)
 {
   OUT_INFO("Unmapping DLL from target process (handle: 0x" << std::hex << process_handle << ") at 0x"  << (PVOID)p_target_base);
 
@@ -383,7 +364,7 @@ void __stdcall shellcode_attach(MANUAL_MAPPING_DATA* p_data)
     }
 
     PIMAGE_BASE_RELOCATION p_reloc_data = reinterpret_cast<PIMAGE_BASE_RELOCATION>(p_base + p_opt->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress);
-
+    
     while (p_reloc_data->VirtualAddress)
     {
       UINT amount_of_entries = (p_reloc_data->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(WORD);
@@ -405,7 +386,7 @@ void __stdcall shellcode_attach(MANUAL_MAPPING_DATA* p_data)
   if (p_opt->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size)
   {
     PIMAGE_IMPORT_DESCRIPTOR p_import_descr = reinterpret_cast<PIMAGE_IMPORT_DESCRIPTOR>(p_base + p_opt->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
-
+    
     while (p_import_descr->Name)
     {
       char* sz_mod = reinterpret_cast<char*>(p_base + p_import_descr->Name);
@@ -438,7 +419,7 @@ void __stdcall shellcode_attach(MANUAL_MAPPING_DATA* p_data)
   {
     auto* p_tls = reinterpret_cast<IMAGE_TLS_DIRECTORY*>(p_base + p_opt->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress);
     auto* p_callback = reinterpret_cast<PIMAGE_TLS_CALLBACK*>(p_tls->AddressOfCallBacks);
-
+    
     for (; p_callback && *p_callback; ++p_callback)
     {
       (*p_callback)(p_base, DLL_PROCESS_ATTACH, nullptr);

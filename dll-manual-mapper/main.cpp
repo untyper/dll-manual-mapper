@@ -3,7 +3,7 @@
 #include <iostream>
 
 #include "colors.h"
-#include "injector.h"
+#include "dll_mapper.h"
 #include "dll.h"
 
 // To disable output, remove MANUAL_MAP_ENABLE_OUTPUT from the preprocessors settings in project properties
